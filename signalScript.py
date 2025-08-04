@@ -1,8 +1,10 @@
+import threading
+from flask import Flask
 import time
 import requests
 import pandas as pd
 
-# پارامترها
+# =============== تنظیمات ===============
 BOT_TOKEN = '8477585069:AAG8gq06MW7ctfuA9w-WzsUXcH50bGjN6mw'
 CHAT_ID = '7628418093'
 SYMBOLS = ['BTC-USDT', 'DOGE-USDT', 'SHIB-USDT', 'DOT-USDT', 'PEPE-USDT']
@@ -10,6 +12,7 @@ TIMEFRAME = '5min'
 RSI_PERIOD = 36
 CHECK_INTERVAL = 300  # هر 5 دقیقه
 
+# =============== توابع تحلیل ===============
 def get_kucoin_candles(symbol, timeframe):
     url = f'https://api.kucoin.com/api/v1/market/candles?type={timeframe}&symbol={symbol}&limit=100'
     try:
@@ -19,7 +22,7 @@ def get_kucoin_candles(symbol, timeframe):
             print(f"❌ خطا در گرفتن داده: {data}")
             return None
         df = pd.DataFrame(data['data'], columns=['time','open','close','high','low','volume','turnover'])
-        df = df.iloc[::-1]  # معکوس برای ترتیب زمانی
+        df = df.iloc[::-1]
         df['close'] = df['close'].astype(float)
         return df
     except Exception as e:
@@ -60,30 +63,25 @@ def check_signals():
         elif last_rsi >= 70:
             send_telegram_message(f"📉 سیگنال شورت برای {symbol} | RSI: {last_rsi:.2f}")
 
+def main_loop():
+    while True:
+        print("✅ شروع چک کردن...")
+        check_signals()
+        print(f"⏳ منتظر {CHECK_INTERVAL/60} دقیقه...")
+        time.sleep(CHECK_INTERVAL)
 
-
-# ========================
-# HTTP Endpoint for Render
-# ========================
-from flask import Flask
-import threading
-
+# =============== Flask سرور برای Render ===============
 app = Flask(__name__)
 
 @app.route('/')
 def home():
     return "✅ Bot is alive!"
 
-def periodic_check():
-    check_signals()
-    print("🌀 چک سیگنال‌ها تمام شد. اجرای بعدی در 5 دقیقه...")
-    threading.Timer(CHECK_INTERVAL, periodic_check).start()
-
-@app.before_first_request
-def activate_job():
-    print("🚀 شروع بررسی سیگنال‌ها در بک‌گراند...")
-    periodic_check()
-
-# اجرای Flask
+# =============== اجرای همزمان دو thread ===============
 if __name__ == '__main__':
+    # اجرای حلقه چک سیگنال‌ها در Thread جدا
+    signal_thread = threading.Thread(target=main_loop)
+    signal_thread.start()
+
+    # اجرای سرور Flask برای زنده ماندن در Render
     app.run(host="0.0.0.0", port=10000)
