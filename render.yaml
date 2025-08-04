@@ -1,0 +1,9 @@
+services:
+  - type: worker
+    name: telegram-signal-bot
+    runtime: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python signalScript.py"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10
