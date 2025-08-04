@@ -60,18 +60,13 @@ def check_signals():
         elif last_rsi >= 70:
             send_telegram_message(f"📉 سیگنال شورت برای {symbol} | RSI: {last_rsi:.2f}")
 
-def main_loop():
-    while True:
-        print("✅ شروع چک کردن...")
-        check_signals()
-        print(f"⏳ منتظر {CHECK_INTERVAL/60} دقیقه...")
-        time.sleep(CHECK_INTERVAL)
 
 
 # ========================
 # HTTP Endpoint for Render
 # ========================
 from flask import Flask
+import threading
 
 app = Flask(__name__)
 
@@ -79,16 +74,16 @@ app = Flask(__name__)
 def home():
     return "✅ Bot is alive!"
 
-# اجرای Flask سرور در یک Thread جداگانه
-import threading
+def periodic_check():
+    check_signals()
+    print("🌀 چک سیگنال‌ها تمام شد. اجرای بعدی در 5 دقیقه...")
+    threading.Timer(CHECK_INTERVAL, periodic_check).start()
 
-def run_flask():
-    app.run(host="0.0.0.0", port=10000)
+@app.before_first_request
+def activate_job():
+    print("🚀 شروع بررسی سیگنال‌ها در بک‌گراند...")
+    periodic_check()
 
-flask_thread = threading.Thread(target=run_flask)
-flask_thread.start()
-
-
+# اجرای Flask
 if __name__ == '__main__':
-    main_loop()
-
+    app.run(host="0.0.0.0", port=10000)
