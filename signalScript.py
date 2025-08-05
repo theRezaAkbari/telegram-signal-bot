@@ -1,102 +1,143 @@
-import requests
-import time
 import threading
 from flask import Flask
-import numpy as np
+import time
+import requests
+import pandas as pd
 
-# 📍 پیکربندی اولیه
-TELEGRAM_TOKEN = 'توکن بات'
-TELEGRAM_CHAT_ID = 'آی‌دی چت شما'
-SYMBOLS = ['BTCUSDT', 'DOGEUSDT', 'SHIBUSDT', 'DOTUSDT', 'PEPEUSDT']
+# =============== تنظیمات ===============
+BOT_TOKEN = '8477585069:AAG8gq06MW7ctfuA9w-WzsUXcH50bGjN6mw'
+CHAT_ID = '7628418093'
+SYMBOLS = ['BTC-USDT', 'DOGE-USDT', 'SHIB-USDT', 'DOT-USDT', 'PEPE-USDT']
+
+INTERVAL = '5min'  # تایم فریم کوکوین
 RSI_PERIOD = 36
-INTERVAL = '5m'  # تایم‌فریم ۵ دقیقه‌ای
-CHECK_INTERVAL = 60  # هر ۱ دقیقه چک شود
-PRICE_INTERVAL = 600  # هر ۱۰ دقیقه ارسال قیمت
+CHECK_INTERVAL = 300  # هر 5 دقیقه برای سیگنال دهی
+RSI_PRINT_INTERVAL = 60  # هر 1 دقیقه برای چاپ RSI در ترمینال
+PRICE_SEND_INTERVAL = 600  # هر 10 دقیقه ارسال قیمت به تلگرام
 
-# 📤 ارسال پیام به تلگرام
-def send_telegram_message(message):
-    url = f'https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage'
-    data = {'chat_id': TELEGRAM_CHAT_ID, 'text': message}
+# =============== توابع تحلیل ===============
+
+def get_kucoin_candles(symbol, interval, limit=800):
+    url = f'https://api.kucoin.com/api/v1/market/candles?symbol={symbol}&type={interval}&limit={limit}'
     try:
-        requests.post(url, data=data)
+        resp = requests.get(url, timeout=10)
+        data = resp.json()
+        if data['code'] != '200000':
+            print(f"❌ خطا در گرفتن داده از کوکوین: {data}")
+            return None
+        candles = data['data']
+        candles = candles[::-1]  # مرتب‌سازی زمانی (قدیمی به جدید)
+        return candles
     except Exception as e:
-        print(f'❌ خطا در ارسال پیام تلگرام: {e}')
+        print(f"⚠️ خطا در دریافت داده از کوکوین: {e}")
+        return None
 
-# 📉 محاسبه RSI
-def calculate_rsi(prices, period=14):
-    deltas = np.diff(prices)
-    seed = deltas[:period]
-    up = seed[seed >= 0].sum() / period
-    down = -seed[seed < 0].sum() / period
-    rs = up / down if down != 0 else 0
-    rsi = np.zeros_like(prices)
-    rsi[:period] = 100. - 100. / (1. + rs)
+def compute_rsi_from_closes(close_prices, period=36):
+    series = pd.Series(close_prices)
+    delta = series.diff()
 
-    for i in range(period, len(prices)):
-        delta = deltas[i - 1]
-        upval = max(delta, 0)
-        downval = -min(delta, 0)
-        up = (up * (period - 1) + upval) / period
-        down = (down * (period - 1) + downval) / period
-        rs = up / down if down != 0 else 0
-        rsi[i] = 100. - 100. / (1. + rs)
+    gain = delta.where(delta > 0, 0.0)
+    loss = -delta.where(delta < 0, 0.0)
+
+    avg_gain = gain.ewm(com=period - 1, min_periods=period).mean()
+    avg_loss = loss.ewm(com=period - 1, min_periods=period).mean()
+
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
     return rsi
 
-# 📊 دریافت داده و بررسی RSI
-def check_rsi_and_signals():
+def send_telegram_message(message):
+    url = f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage'
+    payload = {'chat_id': CHAT_ID, 'text': message}
+    try:
+        resp = requests.post(url, data=payload)
+        if resp.status_code != 200:
+            print(f"❌ خطا در ارسال پیام تلگرام: {resp.text}")
+    except Exception as e:
+        print(f"⚠️ استثنا در ارسال پیام تلگرام: {e}")
+
+# چک کردن سیگنال RSI هر 5 دقیقه و ارسال پیام در صورت سیگنال
+def check_signals():
+    print("✅ بررسی سیگنال‌ها شروع شد...")
+    for symbol in SYMBOLS:
+        try:
+            candles = get_kucoin_candles(symbol, INTERVAL)
+            if candles is None or len(candles) < RSI_PERIOD:
+                print(f"⚠️ داده کافی برای {symbol} نیست.")
+                continue
+            close_prices = [float(c[2]) for c in candles if len(c) > 2]
+            rsi_series = compute_rsi_from_closes(close_prices, RSI_PERIOD)
+            last_rsi = rsi_series.iloc[-1]
+            print(f"RSI آخر {symbol}: {last_rsi:.2f}")
+
+            if last_rsi <= 30:
+                send_telegram_message(f"📈 سیگنال لانگ برای {symbol} | RSI: {last_rsi:.2f}")
+            elif last_rsi >= 70:
+                send_telegram_message(f"📉 سیگنال شورت برای {symbol} | RSI: {last_rsi:.2f}")
+        except Exception as e:
+            print(f"⚠️ خطا در پردازش {symbol}: {e}")
+
+# چاپ RSI هر دقیقه برای مقایسه
+def print_rsi_values():
     while True:
-        print("✅ بررسی RSI شروع شد...")
+        print("\n🔍 مقایسه RSI با TradingView:")
         for symbol in SYMBOLS:
             try:
-                url = f'https://api.binance.com/api/v3/klines?symbol={symbol}&interval={INTERVAL}&limit=800'
-                response = requests.get(url)
-                data = response.json()
-                closes = np.array([float(candle[4]) for candle in data])
-
-                if len(closes) < RSI_PERIOD:
-                    print(f"❌ داده کافی برای {symbol} وجود ندارد.")
+                candles = get_kucoin_candles(symbol, INTERVAL)
+                if candles is None or len(candles) < RSI_PERIOD:
+                    print(f"⛔ داده کافی برای {symbol} موجود نیست.")
                     continue
-
-                rsi = calculate_rsi(closes, RSI_PERIOD)[-1]
-                price = closes[-1]
-                print(f"📟 RSI فعلی {symbol}: {round(rsi, 2)}")
-                print(f"💰 قیمت فعلی {symbol}: {price}")
-
-                # ✉️ اگر سیگنال داده شد به بات پیام بفرست
-                if rsi < 30:
-                    send_telegram_message(f"📈 سیگنال خرید: RSI={round(rsi,2)} برای {symbol}")
-                elif rsi > 70:
-                    send_telegram_message(f"📉 سیگنال فروش: RSI={round(rsi,2)} برای {symbol}")
+                close_prices = [float(c[2]) for c in candles if len(c) > 2]
+                rsi_series = compute_rsi_from_closes(close_prices, RSI_PERIOD)
+                last_rsi = rsi_series.iloc[-1]
+                print(f"📈 {symbol} | RSI({RSI_PERIOD}): {round(last_rsi, 2)}")
             except Exception as e:
-                print(f"⚠️ خطا در پردازش {symbol}: {e}")
+                print(f"⚠️ خطا در محاسبه RSI برای {symbol}: {e}")
+        time.sleep(RSI_PRINT_INTERVAL)
+
+# ارسال قیمت هر 10 دقیقه به تلگرام
+def send_prices_periodically():
+    while True:
+        messages = []
+        for symbol in SYMBOLS:
+            try:
+                candles = get_kucoin_candles(symbol, INTERVAL, limit=1)
+                if candles is None or len(candles) == 0:
+                    messages.append(f"⚠️ داده قیمت برای {symbol} موجود نیست.")
+                    continue
+                last_close = float(candles[-1][2])
+                messages.append(f"💰 قیمت فعلی {symbol}: {last_close}")
+            except Exception as e:
+                messages.append(f"⚠️ خطا در دریافت قیمت {symbol}: {e}")
+        full_message = "\n".join(messages)
+        send_telegram_message(full_message)
+        time.sleep(PRICE_SEND_INTERVAL)
+
+# حلقه اصلی چک سیگنال‌ها هر 5 دقیقه
+def main_loop():
+    while True:
+        check_signals()
         time.sleep(CHECK_INTERVAL)
 
-# 💰 ارسال قیمت تمام نمادها هر ۱۰ دقیقه
-def send_price_updates():
-    while True:
-        message = "📊 قیمت‌ نمادها:\n"
-        for symbol in SYMBOLS:
-            try:
-                url = f'https://api.binance.com/api/v3/ticker/price?symbol={symbol}'
-                response = requests.get(url).json()
-                price = float(response['price'])
-                message += f"{symbol}: {price}\n"
-            except:
-                message += f"{symbol}: خطا در دریافت قیمت\n"
-        send_telegram_message(message)
-        time.sleep(PRICE_INTERVAL)
-
-# 🚀 اجرای موازی در پس‌زمینه با Flask
+# =============== Flask سرور برای Render ===============
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "✅ Bot is running!"
+    return "✅ Bot is alive!"
 
 if __name__ == '__main__':
-    # اجرای تسک‌ها در پس‌زمینه
-    threading.Thread(target=check_rsi_and_signals, daemon=True).start()
-    threading.Thread(target=send_price_updates, daemon=True).start()
+    # اجرای thread چک سیگنال‌ها
+    signal_thread = threading.Thread(target=main_loop)
+    signal_thread.start()
+
+    # اجرای thread چاپ RSI در ترمینال
+    rsi_thread = threading.Thread(target=print_rsi_values)
+    rsi_thread.start()
+
+    # اجرای thread ارسال قیمت‌ها به تلگرام هر 10 دقیقه
+    price_thread = threading.Thread(target=send_prices_periodically)
+    price_thread.start()
 
     # اجرای سرور Flask
-    app.run(host='0.0.0.0', port=10000)
+    app.run(host="0.0.0.0", port=10000)
