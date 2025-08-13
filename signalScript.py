@@ -21,7 +21,7 @@ PRICE_SEND_INTERVAL = 3600   # ✅ هر 1 ساعت ارسال قیمت/RSI به 
 CROSS_LEVELS = [35, 40, 60, 65]
 
 # =============== توابع تحلیل ===============
-def get_kucoin_candles(symbol, interval, limit=800):
+def get_kucoin_candles(symbol, interval, limit=1200):
     """
     داده کندل از KuCoin:
     پاسخ: [ time, open, close, high, low, volume, turnover ] (به صورت معکوس زمانی)
