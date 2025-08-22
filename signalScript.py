@@ -9,7 +9,7 @@ BOT_TOKEN = '8477585069:AAG8gq06MW7ctfuA9w-WzsUXcH50bGjN6mw'
 CHAT_ID = '7628418093'
 
 # همه ارزها + SOL
-SYMBOLS = ['BTC-USDT', 'DOGE-USDT', 'SHIB-USDT', 'DOT-USDT', 'PEPE-USDT', 'SOL-USDT']
+SYMBOLS = ['BTC-USDT','SOL-USDT']
 
 INTERVAL = '1min'            # ✅ تایم‌فریم 1 دقیقه
 RSI_PERIOD = 60              # ✅ RSI دوره 60
@@ -18,10 +18,10 @@ RSI_PRINT_INTERVAL = 60      # هر 1 دقیقه برای چاپ RSI در ترم
 PRICE_SEND_INTERVAL = 3600   # ✅ هر 1 ساعت ارسال قیمت/RSI به تلگرام
 
 # آستانه‌های کراس
-CROSS_LEVELS = [35, 40, 60, 65]
+CROSS_LEVELS = [30, 40, 60, 70]
 
 # =============== توابع تحلیل ===============
-def get_kucoin_candles(symbol, interval, limit=1200):
+def get_kucoin_candles(symbol, interval, limit=1800):
     """
     داده کندل از KuCoin:
     پاسخ: [ time, open, close, high, low, volume, turnover ] (به صورت معکوس زمانی)
